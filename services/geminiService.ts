@@ -1,8 +1,8 @@
 import { GoogleGenAI, Chat, Content, Type } from '@google/genai';
+import { Sender } from '../types';
 import type { 
   AppError, 
   ReportType, 
-  Sender, 
   ScorePortaData, 
   ParsedContent,
   Message,
