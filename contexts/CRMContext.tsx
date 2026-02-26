@@ -1,11 +1,14 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useContext, useEffect, useState, useCallback, useMemo } from 'react';
 import { del, set } from 'idb-keyval';
-import { ChatSession, CRMCard, CRMStage, DealHealth, Sender } from '../types';
+import type { ChatSession, CRMCard, CRMStage, DealHealth, Sender, CardId, SessionId } from '../types';
+import { createCardId } from '../types';
 
 const LOCAL_KEY = 'scout360_crm_cards_v1';
 
 interface CRMContextValue {
   cards: CRMCard[];
+  isLoading: boolean;
+  error: string | null;
   createCardFromSession: (session: ChatSession) => Promise<CRMCard>;
   createManualCard: (input: {
     companyName: string;
@@ -15,8 +18,11 @@ interface CRMContextValue {
     stage?: CRMStage;
   }) => Promise<CRMCard>;
   updateCard: (card: CRMCard) => Promise<void>;
-  deleteCard: (cardId: string) => Promise<void>;
-  moveCardToStage: (cardId: string, stage: CRMStage) => Promise<void>;
+  deleteCard: (cardId: CardId) => Promise<void>;
+  moveCardToStage: (cardId: CardId, stage: CRMStage) => Promise<void>;
+  getCardById: (cardId: CardId) => CRMCard | undefined;
+  getCardsByStage: (stage: CRMStage) => CRMCard[];
+  refreshHealth: () => void;
 }
 
 const CRMContext = createContext<CRMContextValue | undefined>(undefined);
@@ -30,14 +36,10 @@ function computeHealth(card: CRMCard): DealHealth {
     : 0;
 
   const daysSinceUpdated = (now - new Date(card.updatedAt).getTime()) / 86_400_000;
-
   const score = card.latestScorePorta;
 
-  // Vermelho: score baixo OU negócio parado há muito tempo sem atualização
-  if (
-    (score !== undefined && score < 40) ||
-    (daysSinceMoved > 30 && daysSinceUpdated > 14)
-  ) {
+  // Vermelho: score baixo OU negócio parado há muito tempo
+  if ((score !== undefined && score < 40) || (daysSinceMoved > 30 && daysSinceUpdated > 14)) {
     return 'red';
   }
 
@@ -50,29 +52,28 @@ function computeHealth(card: CRMCard): DealHealth {
 }
 
 function extractCompanyNameFromSession(session: ChatSession): string {
-  if (session.empresaAlvo && session.empresaAlvo.trim().length > 0) return session.empresaAlvo.trim();
-  if (session.title && session.title.trim().length > 0) return session.title.replace(/\.\.\.$/, '').trim();
+  if (session.empresaAlvo?.trim()) return session.empresaAlvo.trim();
+  if (session.title?.trim()) return session.title.replace(/\.{3}$/, '').trim();
   return 'Empresa sem nome';
 }
 
 function normalizeUrl(raw: string): string {
   return raw
     .trim()
-    .replace(/[),.]+$/g, '')
+    .replace(/[,),]+$/, '')
     .replace(/^<|>$/g, '');
 }
 
 function extractFirstUrl(text: string): string | undefined {
   const matches = text.match(/https?:\/\/[^\s)]+/g);
-  if (!matches || matches.length === 0) return undefined;
+  if (!matches?.length) return undefined;
   return normalizeUrl(matches[0]);
 }
 
 function extractExactLinkFromSession(session: ChatSession): string | undefined {
   const text = session.messages.map(m => m.text || '').join('\n');
   const matches = text.match(/https?:\/\/[^\s)]+/g) || [];
-  const exact = matches.map(normalizeUrl).find(u => u.includes('app.exactspotter.com'));
-  return exact;
+  return matches.map(normalizeUrl).find(u => u.includes('app.exactspotter.com'));
 }
 
 function extractWebsiteFromSession(session: ChatSession): string | undefined {
@@ -80,7 +81,6 @@ function extractWebsiteFromSession(session: ChatSession): string | undefined {
   const matches = blob.match(/https?:\/\/[^\s)]+/g) || [];
   const cleaned = matches.map(normalizeUrl);
 
-  // Preferir um site "da empresa" (heuristica simples)
   const preferred = cleaned.find(u =>
     !u.includes('google.') &&
     !u.includes('brasilapi.com.br') &&
@@ -88,7 +88,7 @@ function extractWebsiteFromSession(session: ChatSession): string | undefined {
     !u.includes('app.exactspotter.com')
   );
 
-  return preferred || undefined;
+  return preferred;
 }
 
 function generateBriefDescriptionFromSession(session: ChatSession): string | undefined {
@@ -103,7 +103,6 @@ function generateBriefDescriptionFromSession(session: ChatSession): string | und
 
   if (!text) return undefined;
 
-  // limpeza leve de markdown / blocos e "fontes"
   text = text
     .replace(/```[\s\S]*?```/g, ' ')
     .replace(/\n+/g, '\n')
@@ -113,7 +112,6 @@ function generateBriefDescriptionFromSession(session: ChatSession): string | und
     .replace(/\s+/g, ' ')
     .trim();
 
-  // tentar pegar 1-2 frases do inicio
   const max = 260;
   const min = 120;
   if (text.length <= max) return text;
@@ -127,33 +125,57 @@ function generateBriefDescriptionFromSession(session: ChatSession): string | und
 
 export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [cards, setCards] = useState<CRMCard[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
+  // Load from localStorage on mount
   useEffect(() => {
-    try {
-      const raw = window.localStorage.getItem(LOCAL_KEY);
-      if (!raw) return;
-      const parsed: CRMCard[] = JSON.parse(raw);
-      setCards(parsed);
-    } catch (err) {
-      console.error('Erro ao carregar CRM do localStorage', err);
-    }
+    const loadCards = () => {
+      try {
+        const raw = window.localStorage.getItem(LOCAL_KEY);
+        if (raw) {
+          const parsed: CRMCard[] = JSON.parse(raw);
+          // Recompute health on load
+          const withHealth = parsed.map(card => ({
+            ...card,
+            health: computeHealth(card),
+          }));
+          setCards(withHealth);
+        }
+      } catch (err) {
+        console.error('Erro ao carregar CRM:', err);
+        setError('Falha ao carregar dados do CRM');
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    loadCards();
   }, []);
 
+  // Save to localStorage on change
   useEffect(() => {
+    if (isLoading) return;
+    
     try {
       window.localStorage.setItem(LOCAL_KEY, JSON.stringify(cards));
     } catch (err) {
-      console.error('Erro ao salvar CRM no localStorage', err);
+      console.error('Erro ao salvar CRM:', err);
+      setError('Falha ao salvar dados do CRM');
     }
-  }, [cards]);
+  }, [cards, isLoading]);
 
-  const saveFull = async (card: CRMCard) => {
-    await set(`crm_card_${card.id}`, card);
-  };
+  const saveFull = useCallback(async (card: CRMCard) => {
+    try {
+      await set(`crm_card_${card.id}`, card);
+    } catch (err) {
+      console.error('Erro ao salvar card no IndexedDB:', err);
+    }
+  }, []);
 
-  const createCardFromSession = async (session: ChatSession): Promise<CRMCard> => {
+  const createCardFromSession = useCallback(async (session: ChatSession): Promise<CRMCard> => {
     const now = new Date().toISOString();
-    const id = `crm_${session.id}`;
+    const id = createCardId(`crm_${session.id}`);
 
     const cnpjDigits = session.cnpj ? String(session.cnpj).replace(/\D/g, '') : '';
     const cnpj = cnpjDigits.length === 14 ? cnpjDigits : (session.cnpj || undefined);
@@ -161,12 +183,12 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const base: CRMCard = {
       id,
       companyName: extractCompanyNameFromSession(session),
-      cnpj: (cnpj as any) || undefined,
-      cnpjs: cnpj ? [String(cnpj)] : undefined,
+      cnpj: cnpj || undefined,
+      cnpjs: cnpj ? [cnpj] : undefined,
       website: extractWebsiteFromSession(session),
       briefDescription: generateBriefDescriptionFromSession(session),
       exactLink: extractExactLinkFromSession(session),
-      linkedSessionIds: [session.id],
+      linkedSessionIds: [session.id as SessionId],
       stage: 'prospeccao',
       createdAt: now,
       updatedAt: now,
@@ -180,9 +202,9 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setCards(prev => [base, ...prev]);
     await saveFull(base);
     return base;
-  };
+  }, [saveFull]);
 
-  const createManualCard = async (input: {
+  const createManualCard = useCallback(async (input: {
     companyName: string;
     cnpj?: string;
     website?: string;
@@ -195,7 +217,7 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const cleanCnpj = input.cnpj ? String(input.cnpj).replace(/\D/g, '') : undefined;
 
     const base: CRMCard = {
-      id: `crm_manual_${Date.now()}`,
+      id: createCardId(`crm_manual_${Date.now()}`),
       companyName: input.companyName.trim() || 'Empresa sem nome',
       cnpj: cleanCnpj && cleanCnpj.length === 14 ? cleanCnpj : undefined,
       cnpjs: cleanCnpj && cleanCnpj.length === 14 ? [cleanCnpj] : undefined,
@@ -216,45 +238,84 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setCards(prev => [base, ...prev]);
     await saveFull(base);
     return base;
-  };
+  }, [saveFull]);
 
-  const updateCard = async (card: CRMCard) => {
-    const updated: CRMCard = { ...card, updatedAt: new Date().toISOString(), health: computeHealth(card) };
+  const updateCard = useCallback(async (card: CRMCard) => {
+    const updated: CRMCard = {
+      ...card,
+      updatedAt: new Date().toISOString(),
+      health: computeHealth(card),
+    };
     setCards(prev => prev.map(c => (c.id === card.id ? updated : c)));
     await saveFull(updated);
-  };
+  }, [saveFull]);
 
-  const deleteCard = async (cardId: string) => {
+  const deleteCard = useCallback(async (cardId: CardId) => {
     setCards(prev => prev.filter(c => c.id !== cardId));
     try {
       await del(`crm_card_${cardId}`);
     } catch {
-      // fallback: nao quebra o app se o del falhar
-      await set(`crm_card_${cardId}`, undefined as any);
+      await set(`crm_card_${cardId}`, undefined as unknown as CRMCard);
     }
-  };
+  }, []);
 
-  const moveCardToStage = async (cardId: string, stage: CRMStage) => {
+  const moveCardToStage = useCallback(async (cardId: CardId, stage: CRMStage) => {
     const card = cards.find(c => c.id === cardId);
     if (!card) return;
+    
     const now = new Date().toISOString();
     const updated: CRMCard = {
       ...card,
       stage,
       movedToStageAt: { ...card.movedToStageAt, [stage]: now },
       updatedAt: now,
+      health: computeHealth({ ...card, stage, movedToStageAt: { ...card.movedToStageAt, [stage]: now } }),
     };
-    await updateCard(updated);
-  };
+    
+    setCards(prev => prev.map(c => (c.id === cardId ? updated : c)));
+    await saveFull(updated);
+  }, [cards, saveFull]);
 
-  const value: CRMContextValue = {
+  const getCardById = useCallback((cardId: CardId) => {
+    return cards.find(c => c.id === cardId);
+  }, [cards]);
+
+  const getCardsByStage = useCallback((stage: CRMStage) => {
+    return cards.filter(c => c.stage === stage);
+  }, [cards]);
+
+  const refreshHealth = useCallback(() => {
+    setCards(prev => prev.map(card => ({
+      ...card,
+      health: computeHealth(card),
+    })));
+  }, []);
+
+  const value = useMemo(() => ({
     cards,
+    isLoading,
+    error,
     createCardFromSession,
     createManualCard,
     updateCard,
     deleteCard,
     moveCardToStage,
-  };
+    getCardById,
+    getCardsByStage,
+    refreshHealth,
+  }), [
+    cards,
+    isLoading,
+    error,
+    createCardFromSession,
+    createManualCard,
+    updateCard,
+    deleteCard,
+    moveCardToStage,
+    getCardById,
+    getCardsByStage,
+    refreshHealth,
+  ]);
 
   return <CRMContext.Provider value={value}>{children}</CRMContext.Provider>;
 };

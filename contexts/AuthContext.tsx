@@ -1,129 +1,131 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-
-export interface AuthUser {
-  id: string;
-  displayName: string;
-  email: string;
-  isGuest: boolean;
-}
+import React, { createContext, useContext, useState, useEffect, useCallback, useMemo, ReactNode } from 'react';
+import { GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged, User } from 'firebase/auth';
+import { auth } from '../services/firebase';
+import type { UserId } from '../types';
+import { createUserId } from '../types';
 
 interface AuthContextType {
-  user: AuthUser | null;
-  userId: string;
+  user: User | null;
+  userId: UserId | null;
   isAuthenticated: boolean;
-  loading: boolean;
-  login: (email: string, password: string) => Promise<void>;
-  logout: () => Promise<void>;
-  updateName: (name: string) => void;
+  isLoading: boolean;
   error: string | null;
+  login: () => Promise<void>;
+  logout: () => Promise<void>;
+  updateName: (name: string) => Promise<void>;
+  clearError: () => void;
 }
-
-// ─── Base de usuários pré-carregada ──────────────────────────────────────────
-// Para adicionar ou remover usuários, edite esta lista.
-// Cada entrada: { email, password, displayName }
-// ─────────────────────────────────────────────────────────────────────────────
-interface UserRecord {
-  email: string;
-  password: string;
-  displayName: string;
-}
-
-const USERS_DB: UserRecord[] = [
-  { email: 'admin@senior.com.br',   password: 'Senior2026!',  displayName: 'Administrador'  },
-  { email: 'bruno@senior.com.br',   password: 'Bruno2026!',   displayName: 'Bruno Lima'     },
-  { email: 'vendas@senior.com.br',  password: 'Vendas2026!',  displayName: 'Equipe Vendas'  },
-  // Adicione mais usuários aqui ↓
-];
-// ─────────────────────────────────────────────────────────────────────────────
-
-const SESSION_KEY = 'scout360_session';
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-  const [user, setUser] = useState<AuthUser | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [user, setUser] = useState<User | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Restaura sessão salva ao carregar a página
   useEffect(() => {
-    try {
-      const saved = localStorage.getItem(SESSION_KEY);
-      if (saved) {
-        setUser(JSON.parse(saved));
+    if (!auth) {
+      setIsLoading(false);
+      return;
+    }
+
+    const unsubscribe = onAuthStateChanged(
+      auth,
+      (firebaseUser) => {
+        setUser(firebaseUser);
+        setIsLoading(false);
+      },
+      (err) => {
+        console.error('Auth state error:', err);
+        setError('Erro ao verificar autenticação');
+        setIsLoading(false);
       }
-    } catch {
-      localStorage.removeItem(SESSION_KEY);
+    );
+
+    return () => unsubscribe();
+  }, []);
+
+  const login = useCallback(async () => {
+    if (!auth) {
+      setError('Autenticação não disponível');
+      return;
+    }
+
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      const provider = new GoogleAuthProvider();
+      provider.setCustomParameters({
+        prompt: 'select_account',
+      });
+      await signInWithPopup(auth, provider);
+    } catch (err) {
+      console.error('Login error:', err);
+      setError('Falha ao fazer login. Tente novamente.');
     } finally {
-      setLoading(false);
+      setIsLoading(false);
     }
   }, []);
 
-  const login = async (email: string, password: string) => {
-    setError(null);
+  const logout = useCallback(async () => {
+    if (!auth) return;
 
-    if (!email || !email.includes('@')) {
-      setError('Informe um e-mail válido.');
-      throw new Error('invalid-email');
+    setIsLoading(true);
+    try {
+      await signOut(auth);
+    } catch (err) {
+      console.error('Logout error:', err);
+      setError('Falha ao fazer logout');
+    } finally {
+      setIsLoading(false);
     }
+  }, []);
 
-    const record = USERS_DB.find(
-      (u) => u.email.toLowerCase() === email.toLowerCase()
-    );
-
-    if (!record) {
-      setError('E-mail não encontrado.');
-      throw new Error('user-not-found');
-    }
-
-    if (record.password !== password) {
-      setError('Senha incorreta.');
-      throw new Error('wrong-password');
-    }
-
-    const newUser: AuthUser = {
-      id: record.email,
-      displayName: record.displayName,
-      email: record.email,
-      isGuest: false,
-    };
-
-    setUser(newUser);
-    localStorage.setItem(SESSION_KEY, JSON.stringify(newUser));
-  };
-
-  const logout = async () => {
-    setUser(null);
-    localStorage.removeItem(SESSION_KEY);
-  };
-
-  const updateName = (name: string) => {
+  const updateName = useCallback(async (name: string) => {
     if (!user) return;
-    const updated = { ...user, displayName: name };
-    setUser(updated);
-    localStorage.setItem(SESSION_KEY, JSON.stringify(updated));
-  };
+
+    try {
+      await user.updateProfile({ displayName: name });
+      // Force refresh
+      setUser({ ...user });
+    } catch (err) {
+      console.error('Update name error:', err);
+      setError('Falha ao atualizar nome');
+    }
+  }, [user]);
+
+  const clearError = useCallback(() => {
+    setError(null);
+  }, []);
+
+  const userId = useMemo(() => {
+    return user?.uid ? createUserId(user.uid) : null;
+  }, [user?.uid]);
+
+  const value = useMemo(() => ({
+    user,
+    userId,
+    isAuthenticated: !!user,
+    isLoading,
+    error,
+    login,
+    logout,
+    updateName,
+    clearError,
+  }), [user, userId, isLoading, error, login, logout, updateName, clearError]);
 
   return (
-    <AuthContext.Provider
-      value={{
-        user,
-        userId: user?.id || '',
-        isAuthenticated: !!user,
-        loading,
-        login,
-        logout,
-        updateName,
-        error,
-      }}
-    >
+    <AuthContext.Provider value={value}>
       {children}
     </AuthContext.Provider>
   );
 };
 
-export const useAuth = () => {
-  const ctx = useContext(AuthContext);
-  if (!ctx) throw new Error('useAuth deve estar dentro de AuthProvider');
-  return ctx;
+export const useAuth = (): AuthContextType => {
+  const context = useContext(AuthContext);
+  if (context === undefined) {
+    throw new Error('useAuth deve ser usado dentro de um AuthProvider');
+  }
+  return context;
 };
