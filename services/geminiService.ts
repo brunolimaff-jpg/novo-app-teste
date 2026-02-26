@@ -6,10 +6,7 @@ import type {
   ScorePortaData, 
   ParsedContent,
   Message,
-  MessageId,
-  SessionId,
 } from '../types';
-import { createMessageId } from '../types';
 import { normalizeAppError } from '../utils/errorHelpers';
 import { withRetry } from '../utils/retry';
 import { cleanStatusMarkers, stripMarkdown, cleanSuggestionText } from '../utils/textCleaners';
@@ -50,7 +47,7 @@ export interface GeminiResponse {
 // ===================================================================
 const CONTINUITY_SYSTEM = `
 Você é o estrategista de continuidade do Senior Scout 360.
-Sua missão é criar ganchos comerciais que forcem o cliente a admitir um gap de gestão ou tecnologia.
+Sua missão é criar ganchos comerciais que forçam o cliente a admitir um gap de gestão ou tecnologia.
 
 DIRETRIZES:
 1. ANCORAGEM OBRIGATÓRIA: Cada pergunta deve conter ao menos UM dado específico do contexto.
@@ -184,18 +181,16 @@ export function generateContextReminder(companyName: string | null, sessionId?: 
   
   const now = Date.now();
   if (currentCompanyContext && currentCompanyContext.empresa !== companyName) {
-    console.warn(`[CONTEXTO] Mudança detectada: "${currentCompanyContext.empresa}" → "${companyName}"`);
     currentCompanyContext = { empresa: companyName, sessionId: sessionId || 'unknown', timestamp: now };
-    return `\n\n⚠️ [TROCA DE CONTEXTO DETECTADA]: O usuário mudou de "${companyName}".\n- IGNORE TODOS os dados de empresas anteriores.\n- NÃO mencione nenhuma empresa que não seja "${companyName}".\n- Se encontrar dados de outra empresa no histórico, DESCARTE.\n- Foco 100% em: ${companyName}\n`;
+    return `\n\n⚠️ [TROCA DE CONTEXTO DETECTADA]: O usuário mudou para "${companyName}".\n- IGNORE TODOS os dados de empresas anteriores.\n- NÃO mencione nenhuma empresa que não seja "${companyName}".\n- Foco 100% em: ${companyName}\n`;
   }
   
   currentCompanyContext = { empresa: companyName, sessionId: sessionId || 'unknown', timestamp: now };
-  return `\n\n📌 [CONTEXTO ATIVO]: Você está investigando a empresa "${companyName}".\n- Mantenha foco TOTAL nesta empresa.\n- NÃO misture com dados de outras empresas.\n- Se detectar inconsistência, ALERTAR: "⚠️ Dados inconsistentes detectados. Mantendo foco em ${companyName}."\n- NUNCA cite nomes de empresas que não foram mencionados pelo usuário.\n`;
+  return `\n\n📌 [CONTEXTO ATIVO]: Você está investigando a empresa "${companyName}".\n- Mantenha foco TOTAL nesta empresa.\n- NÃO misture com dados de outras empresas.\n`;
 }
 
 export function resetCompanyContext(): void {
   currentCompanyContext = null;
-  console.log('[CONTEXTO] Resetado');
 }
 
 // ===================================================================
@@ -221,11 +216,11 @@ function getReadableTitle(source: { uri?: string; title?: string }): string {
   }
 
   const DOMAIN_NAMES: Record<string, string> = {
-    'youtube.com': '📺 YouTube',
+    'youtube.com': '💺 YouTube',
     'theagribiz.com': '🌾 The AgriBiz',
     'comprerural.com': '🐄 Compre Rural',
     'agfeed.com.br': '📰 AgFeed',
-    'canalrural.com.br': '📺 Canal Rural',
+    'canalrural.com.br': '💺 Canal Rural',
     'globorural.globo.com': '📰 Globo Rural',
     'valoreconomico.globo.com': '📰 Valor Econômico',
     'reuters.com': '📰 Reuters',
@@ -233,8 +228,8 @@ function getReadableTitle(source: { uri?: string; title?: string }): string {
     'forbes.com.br': '📰 Forbes Brasil',
     'senior.com.br': '🏢 Senior Sistemas',
     'gatec.com.br': '🌾 GAtec',
-    'conab.gov.br': '🏛️ CONAB',
-    'ibama.gov.br': '🏛️ IBAMA',
+    'conab.gov.br': '🏗️ CONAB',
+    'ibama.gov.br': '🏗️ IBAMA',
     'jusbrasil.com.br': '⚖️ JusBrasil',
     'reclameaqui.com.br': '⭐ Reclame Aqui',
     'linkedin.com': '💼 LinkedIn',
@@ -275,11 +270,6 @@ export function createChatSession(
       
       MODO LIVE STATUS (OBRIGATÓRIO):
       Durante a geração, emita marcadores [[STATUS: Mensagem]] a cada nova dimensão da análise técnica.
-      1. [[STATUS: Localizando dados oficiais e Receita Federal...]]
-      2. [[STATUS: Analisando quadro societário e coligadas...]]
-      3. [[STATUS: Varrendo histórico jurídico e processos...]]
-      4. [[STATUS: Mapeando gaps tecnológicos e softwares utilizados...]]
-      5. [[STATUS: Consolidando oportunidades de venda Senior...]]
 
       REGRAS CRÍTICAS:
       - JAMAIS use introduções fixas.
@@ -318,7 +308,7 @@ async function analyzeUserIntent(msg: string): Promise<{
       Extraia 3 informações separadas por "|":
       1. NOME DA EMPRESA (limpo, sem LTDA/SA. Se não houver, responda NONE)
       2. BENCHMARK: O usuário quer comparar com concorrentes? (SIM/NAO)
-      3. ROTA: Responda PROFUNDA se o usuário pediu um "dossiê completo", "investigação completa", "capivara", "varredura". Responda TATICA se for uma pergunta específica ou pontual.
+      3. ROTA: Responda PROFUNDA se o usuário pediu um "dossie completo", "investigação completa", "capivara", "varredura". Responda TATICA se for uma pergunta específica ou pontual.
     `;
 
     const response = await withRetry(
@@ -447,7 +437,6 @@ export async function sendMessageToGemini(
     nomeVendedor,
   } = options;
 
-  // Rate limiting
   const rateLimit = checkRateLimit('gemini-send', 30, 60000);
   if (!rateLimit.allowed) {
     throw normalizeAppError(
@@ -462,7 +451,7 @@ export async function sendMessageToGemini(
   const apiCall = async (): Promise<GeminiResponse> => {
     onStatus?.('Analisando complexidade do pedido...');
 
-    const { empresa, benchmark, rota } = await analyzeUserIntent(message);
+    const { empresa, rota } = await analyzeUserIntent(message);
     const selectedModel = rota === 'profunda' ? DEEP_CHAT_MODEL_ID : TACTICAL_MODEL_ID;
     const isDeepResearch = rota === 'profunda';
 
@@ -474,7 +463,6 @@ export async function sendMessageToGemini(
     if (signal?.aborted) throw new Error('Request aborted');
 
     const enrichments: string[] = [];
-
     if (empresa) {
       enrichments.push(generateContextReminder(empresa));
     }
@@ -498,7 +486,6 @@ export async function sendMessageToGemini(
     let sourcesReported = 0;
     let textMilestone = 0;
 
-    // Timeout de inatividade
     const STREAM_INACTIVITY_MS = 45000;
     let streamTimedOut = false;
     let inactivityTimer: ReturnType<typeof setTimeout> | null = null;
@@ -507,7 +494,6 @@ export async function sendMessageToGemini(
       if (inactivityTimer) clearTimeout(inactivityTimer);
       inactivityTimer = setTimeout(() => {
         streamTimedOut = true;
-        console.warn('[GEMINI] Stream inativo por 45s — interrompendo.');
       }, STREAM_INACTIVITY_MS);
     };
     resetInactivity();
@@ -536,13 +522,13 @@ export async function sendMessageToGemini(
 
       const textLen = rawAccumulator.length;
       if (textLen > 12000 && textMilestone < 3) {
-        onStatus?.('Finalizando dossiê — estruturando conclusões...');
+        onStatus?.('Finalizando dossie — estruturando conclusões...');
         textMilestone = 3;
       } else if (textLen > 6000 && textMilestone < 2) {
-        onStatus?.('Dossiê avançado — compilando análise detalhada...');
+        onStatus?.('Dossie avançado — compilando análise detalhada...');
         textMilestone = 2;
       } else if (textLen > 2000 && textMilestone < 1) {
-        onStatus?.('Dossiê em construção — gerando análise...');
+        onStatus?.('Dossie em construção — gerando análise...');
         textMilestone = 1;
       }
 
@@ -569,7 +555,6 @@ export async function sendMessageToGemini(
     const finalParsed = parseMarkers(rawAccumulator);
     let finalText = enforceOpeningWithSeller(finalParsed.text, nomeParaInjetar);
 
-    // Strip inline links
     const inlineLinks: Array<{ title: string; url: string }> = [];
     finalText = finalText.replace(
       /\[([^\]\n]{1,120})\]\((https?:\/\/[^)\s]{4,})\)/g,
@@ -618,7 +603,7 @@ export async function sendMessageToGemini(
 }
 
 // ===================================================================
-// GERAÇÃO DE DOSSIÊ CONSOLIDADO
+// GERAÇÃO DE DOSSIE CONSOLIDADO
 // ===================================================================
 export async function generateConsolidatedDossier(
   history: Message[],
@@ -650,7 +635,6 @@ export async function generateConsolidatedDossier(
 export async function runWarRoomOSINT(prompt: string): Promise<string> {
   const ai = getGenAI();
 
-  // Rate limiting para War Room
   const rateLimit = checkRateLimit('warroom-osint', 10, 60000);
   if (!rateLimit.allowed) {
     throw new Error('Rate limit exceeded for War Room. Please wait.');
@@ -703,5 +687,3 @@ REGRAS:
     throw new Error(error instanceof Error ? error.message : 'Falha na conexão OSINT');
   }
 }
-
-export { resetChatSession };

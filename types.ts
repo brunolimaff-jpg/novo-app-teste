@@ -22,7 +22,8 @@ export type ErrorCode =
   | 'PARSER' 
   | 'UNKNOWN'
   | 'ABORTED'
-  | 'BLOCKED_CONTENT';
+  | 'BLOCKED_CONTENT'
+  | 'GUARD';
 
 export type ErrorSource = 'GEMINI' | 'BRASIL_API' | 'APPS_SCRIPT' | 'EXPORT' | 'PARSER' | 'UI' | 'UNKNOWN';
 
@@ -72,9 +73,7 @@ export interface Message {
   isError?: boolean;
   errorDetails?: AppError;
   isSourcesOpen?: boolean;
-  // NOVO: Score PORTA
   scorePorta?: ScorePortaData;
-  // NOVO: Statuses extraídos
   statuses?: string[];
 }
 
@@ -89,7 +88,6 @@ export interface ChatSession {
   createdAt: string;
   updatedAt: string;
   messages: Message[];
-  // NOVO: Contexto da empresa
   companyContext?: string;
 }
 
@@ -105,7 +103,6 @@ export interface ChatInterfaceProps {
   onNewSession: () => void;
   onSelectSession: (sessionId: string) => void;
   onDeleteSession: (sessionId: string) => void;
-  // Props anteriormente faltantes — adicionadas na Fase 1
   onSaveToCRM: (sessionId: string) => void;
   onDeepDive: (displayMessage: string, hiddenPrompt: string) => Promise<void>;
   onOpenKanban: () => void;
@@ -138,7 +135,6 @@ export interface ChatInterfaceProps {
   pdfReportContent: string | null;
   onOpenEmailModal: () => void;
   onOpenFollowUpModal: () => void;
-  // Renomeado de userId para deixar claro que é um nó React, não uma string
   userHeaderNode: React.ReactNode;
   onLogout: () => void;
   lastUserQuery?: string;
@@ -146,7 +142,6 @@ export interface ChatInterfaceProps {
     stage?: string;
     completedStages?: string[];
   };
-  // Deletar mensagem do usuário
   onDeleteMessage?: (id: string) => void;
 }
 
@@ -166,7 +161,7 @@ export const CRM_STAGE_LABELS: Record<CRMStage, string> = {
   primeira_reuniao: '1ª Reunião',
   levantamento: 'Levantamento',
   defesa_tecnica: 'Defesa Técnica',
-  dossie_final: 'Dossiê Final',
+  dossie_final: 'Dossie Final',
 };
 
 export type DealHealth = 'green' | 'yellow' | 'red';
@@ -193,16 +188,11 @@ export interface CRMStageData {
 export interface CRMCard {
   id: string;
   companyName: string;
-  // Compat: cnpj unico legado
   cnpj?: string | null;
-  // NOVO: lista de CNPJs
   cnpjs?: string[];
-  // NOVO: campos basicos do cadastro
   website?: string;
   briefDescription?: string;
-  // NOVO: ExactSpotter
   exactLink?: string;
-
   linkedSessionIds: string[];
   stage: CRMStage;
   createdAt: string;
