@@ -1,15 +1,4 @@
-/**
- * useToast — sistema de notificações global leve (sem dependência externa).
- *
- * Uso:
- *   const { toasts, toast } = useToast();
- *   toast.error('Algo falhou');
- *   toast.success('Salvo com sucesso!');
- *   toast.info('Processando...');
- *
- * Renderização: montar <ToastContainer toasts={toasts} /> em AppCore ou ChatInterface.
- */
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 
 export type ToastType = 'success' | 'error' | 'info' | 'warning';
 
@@ -17,31 +6,84 @@ export interface Toast {
   id: string;
   type: ToastType;
   message: string;
+  duration: number;
+  createdAt: number;
 }
 
-export function useToast(duration = 4000) {
+interface ToastOptions {
+  duration?: number;
+  id?: string;
+}
+
+const DEFAULT_DURATION = 4000;
+const MAX_TOASTS = 5;
+
+export function useToast() {
   const [toasts, setToasts] = useState<Toast[]>([]);
+  const timersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
 
   const dismiss = useCallback((id: string) => {
     setToasts((prev) => prev.filter((t) => t.id !== id));
+    
+    const timer = timersRef.current.get(id);
+    if (timer) {
+      clearTimeout(timer);
+      timersRef.current.delete(id);
+    }
   }, []);
 
   const add = useCallback(
-    (type: ToastType, message: string) => {
-      const id = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-      setToasts((prev) => [...prev.slice(-4), { id, type, message }]); // max 5 simultâneos
-      setTimeout(() => dismiss(id), duration);
+    (type: ToastType, message: string, options: ToastOptions = {}) => {
+      const id = options.id || `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+      const duration = options.duration || DEFAULT_DURATION;
+      
+      // Remove toast existente com mesmo ID
+      if (options.id) {
+        dismiss(options.id);
+      }
+
+      const newToast: Toast = {
+        id,
+        type,
+        message,
+        duration,
+        createdAt: Date.now(),
+      };
+
+      setToasts((prev) => {
+        const filtered = options.id ? prev.filter(t => t.id !== options.id) : prev;
+        return [...filtered.slice(-MAX_TOASTS + 1), newToast];
+      });
+
+      const timer = setTimeout(() => {
+        dismiss(id);
+      }, duration);
+      
+      timersRef.current.set(id, timer);
+
       return id;
     },
-    [dismiss, duration],
+    [dismiss]
   );
 
   const toast = {
-    success: (msg: string) => add('success', msg),
-    error: (msg: string) => add('error', msg),
-    info: (msg: string) => add('info', msg),
-    warning: (msg: string) => add('warning', msg),
+    success: (msg: string, opts?: ToastOptions) => add('success', msg, opts),
+    error: (msg: string, opts?: ToastOptions) => add('error', msg, { ...opts, duration: opts?.duration || 6000 }),
+    info: (msg: string, opts?: ToastOptions) => add('info', msg, opts),
+    warning: (msg: string, opts?: ToastOptions) => add('warning', msg, { ...opts, duration: opts?.duration || 5000 }),
   };
 
-  return { toasts, toast, dismiss };
+  const clearAll = useCallback(() => {
+    timersRef.current.forEach((timer) => clearTimeout(timer));
+    timersRef.current.clear();
+    setToasts([]);
+  }, []);
+
+  const updateMessage = useCallback((id: string, message: string) => {
+    setToasts((prev) =>
+      prev.map((t) => (t.id === id ? { ...t, message } : t))
+    );
+  }, []);
+
+  return { toasts, toast, dismiss, clearAll, updateMessage };
 }
