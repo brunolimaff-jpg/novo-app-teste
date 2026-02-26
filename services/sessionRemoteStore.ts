@@ -1,5 +1,5 @@
 import { ChatSession, Message } from "../types";
-import { withAutoRetry } from "../utils/retry";
+import { withRetry } from "../utils/retry";
 import { normalizeAppError } from "../utils/errorHelpers";
 import { BACKEND_URL } from "./apiConfig";
 
@@ -40,7 +40,6 @@ async function fetchWithTimeout(url: string, options: RequestInit, timeout: numb
 
 export async function listRemoteSessions(): Promise<ChatSession[]> {
   const apiCall = async () => {
-    // Apps Script espera POST com action
     const res = await fetchWithTimeout(SESSIONS_API_URL, {
       method: "POST",
       redirect: "follow",
@@ -63,7 +62,7 @@ export async function listRemoteSessions(): Promise<ChatSession[]> {
   };
 
   try {
-    const rows = await withAutoRetry<RemoteSessionRow[]>('RemoteStore:list', apiCall, { maxRetries: 2 });
+    const rows = await withRetry<RemoteSessionRow[]>(apiCall, { maxRetries: 2 });
     
     return rows.map((r) => ({
       id: r.sessionId,
@@ -107,7 +106,7 @@ export async function getRemoteSession(id: string): Promise<ChatSession | null> 
   };
 
   try {
-    const s = await withAutoRetry('RemoteStore:get', apiCall, { maxRetries: 2 });
+    const s = await withRetry(apiCall, { maxRetries: 2 });
     if (!s) return null;
 
     let messages: Message[] = [];
@@ -177,5 +176,5 @@ export async function saveRemoteSession(session: ChatSession, userId?: string, u
     return data;
   };
 
-  return await withAutoRetry('RemoteStore:save', apiCall, { maxRetries: 3 });
+  return await withRetry(apiCall, { maxRetries: 3 });
 }
