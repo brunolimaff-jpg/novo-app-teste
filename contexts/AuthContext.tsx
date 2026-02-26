@@ -1,12 +1,15 @@
-import React, { createContext, useContext, useState, useEffect, useCallback, useMemo, ReactNode } from 'react';
-import { GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged, User } from 'firebase/auth';
-import { auth } from '../services/firebase';
-import type { UserId } from '../types';
-import { createUserId } from '../types';
+import React, { createContext, useContext, useState, useCallback, useMemo, ReactNode } from 'react';
+
+// Mock user type
+interface User {
+  uid: string;
+  displayName: string | null;
+  email: string | null;
+}
 
 interface AuthContextType {
   user: User | null;
-  userId: UserId | null;
+  userId: string | null;
   isAuthenticated: boolean;
   isLoading: boolean;
   error: string | null;
@@ -18,48 +21,27 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+// Mock user for local development
+const mockUser: User = {
+  uid: 'local-user-' + Math.random().toString(36).substr(2, 9),
+  displayName: 'Usuário Local',
+  email: 'usuario@local.dev'
+};
+
 export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (!auth) {
-      setIsLoading(false);
-      return;
-    }
-
-    const unsubscribe = onAuthStateChanged(
-      auth,
-      (firebaseUser) => {
-        setUser(firebaseUser);
-        setIsLoading(false);
-      },
-      (err) => {
-        console.error('Auth state error:', err);
-        setError('Erro ao verificar autenticação');
-        setIsLoading(false);
-      }
-    );
-
-    return () => unsubscribe();
-  }, []);
-
   const login = useCallback(async () => {
-    if (!auth) {
-      setError('Autenticação não disponível');
-      return;
-    }
-
     setIsLoading(true);
     setError(null);
 
     try {
-      const provider = new GoogleAuthProvider();
-      provider.setCustomParameters({
-        prompt: 'select_account',
-      });
-      await signInWithPopup(auth, provider);
+      // Simulate async login
+      await new Promise(resolve => setTimeout(resolve, 500));
+      setUser(mockUser);
+      localStorage.setItem('auth_user', JSON.stringify(mockUser));
     } catch (err) {
       console.error('Login error:', err);
       setError('Falha ao fazer login. Tente novamente.');
@@ -69,11 +51,11 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   }, []);
 
   const logout = useCallback(async () => {
-    if (!auth) return;
-
     setIsLoading(true);
     try {
-      await signOut(auth);
+      await new Promise(resolve => setTimeout(resolve, 300));
+      setUser(null);
+      localStorage.removeItem('auth_user');
     } catch (err) {
       console.error('Logout error:', err);
       setError('Falha ao fazer logout');
@@ -86,9 +68,9 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     if (!user) return;
 
     try {
-      await user.updateProfile({ displayName: name });
-      // Force refresh
-      setUser({ ...user });
+      const updatedUser = { ...user, displayName: name };
+      setUser(updatedUser);
+      localStorage.setItem('auth_user', JSON.stringify(updatedUser));
     } catch (err) {
       console.error('Update name error:', err);
       setError('Falha ao atualizar nome');
@@ -100,7 +82,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   }, []);
 
   const userId = useMemo(() => {
-    return user?.uid ? createUserId(user.uid) : null;
+    return user?.uid || null;
   }, [user?.uid]);
 
   const value = useMemo(() => ({
