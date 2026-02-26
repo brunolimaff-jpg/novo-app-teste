@@ -1,6 +1,4 @@
 import React, { createContext, useContext, useState, useCallback, useMemo, ReactNode } from 'react';
-import type { UserId } from '../types';
-import { createUserId } from '../types';
 
 // Mock user type
 interface User {
@@ -11,7 +9,7 @@ interface User {
 
 interface AuthContextType {
   user: User | null;
-  userId: UserId | null;
+  userId: string | null;
   isAuthenticated: boolean;
   isLoading: boolean;
   error: string | null;
@@ -84,7 +82,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   }, []);
 
   const userId = useMemo(() => {
-    return user?.uid ? createUserId(user.uid) : null;
+    return user?.uid || null;
   }, [user?.uid]);
 
   const value = useMemo(() => ({
