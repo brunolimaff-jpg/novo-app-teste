@@ -193,6 +193,14 @@ export function resetCompanyContext(): void {
   currentCompanyContext = null;
 }
 
+/**
+ * Alias público para resetCompanyContext.
+ * Chamado pelo AppCore ao trocar/limpar sessão.
+ */
+export function resetChatSession(): void {
+  resetCompanyContext();
+}
+
 // ===================================================================
 // FUNÇÕES DE TÍTULO
 // ===================================================================
@@ -216,11 +224,11 @@ function getReadableTitle(source: { uri?: string; title?: string }): string {
   }
 
   const DOMAIN_NAMES: Record<string, string> = {
-    'youtube.com': '💺 YouTube',
+    'youtube.com': '📺 YouTube',
     'theagribiz.com': '🌾 The AgriBiz',
     'comprerural.com': '🐄 Compre Rural',
     'agfeed.com.br': '📰 AgFeed',
-    'canalrural.com.br': '💺 Canal Rural',
+    'canalrural.com.br': '📺 Canal Rural',
     'globorural.globo.com': '📰 Globo Rural',
     'valoreconomico.globo.com': '📰 Valor Econômico',
     'reuters.com': '📰 Reuters',
@@ -228,8 +236,8 @@ function getReadableTitle(source: { uri?: string; title?: string }): string {
     'forbes.com.br': '📰 Forbes Brasil',
     'senior.com.br': '🏢 Senior Sistemas',
     'gatec.com.br': '🌾 GAtec',
-    'conab.gov.br': '🏗️ CONAB',
-    'ibama.gov.br': '🏗️ IBAMA',
+    'conab.gov.br': '🏛️ CONAB',
+    'ibama.gov.br': '🏛️ IBAMA',
     'jusbrasil.com.br': '⚖️ JusBrasil',
     'reclameaqui.com.br': '⭐ Reclame Aqui',
     'linkedin.com': '💼 LinkedIn',
