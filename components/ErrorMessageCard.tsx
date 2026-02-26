@@ -1,7 +1,6 @@
 
 import React, { useState } from 'react';
 import { AppError } from '../types';
-import { getFriendlyErrorMessage } from '../utils/errorHelpers';
 import { ChatMode } from '../constants';
 
 interface ErrorMessageCardProps {
@@ -25,7 +24,7 @@ const ErrorMessageCard: React.FC<ErrorMessageCardProps> = ({
   const [isReported, setIsReported] = useState(false);
   const [isReporting, setIsReporting] = useState(false);
 
-  const friendlyMessage = getFriendlyErrorMessage(error, mode as ChatMode);
+  const friendlyMessage = error.friendlyMessage || error.message || 'Erro desconhecido';
 
   // ✅ PENSANDO EM AMBOS OS MODOS: Temas consistentes e harmon izados
   const theme = {
