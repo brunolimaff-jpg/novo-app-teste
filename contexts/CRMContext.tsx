@@ -1,7 +1,6 @@
 import React, { createContext, useContext, useEffect, useState, useCallback, useMemo } from 'react';
 import { del, set } from 'idb-keyval';
-import type { ChatSession, CRMCard, CRMStage, DealHealth, Sender, CardId, SessionId } from '../types';
-import { createCardId } from '../types';
+import type { ChatSession, CRMCard, CRMStage, DealHealth, Sender } from '../types';
 
 const LOCAL_KEY = 'scout360_crm_cards_v1';
 
@@ -18,9 +17,9 @@ interface CRMContextValue {
     stage?: CRMStage;
   }) => Promise<CRMCard>;
   updateCard: (card: CRMCard) => Promise<void>;
-  deleteCard: (cardId: CardId) => Promise<void>;
-  moveCardToStage: (cardId: CardId, stage: CRMStage) => Promise<void>;
-  getCardById: (cardId: CardId) => CRMCard | undefined;
+  deleteCard: (cardId: string) => Promise<void>;
+  moveCardToStage: (cardId: string, stage: CRMStage) => Promise<void>;
+  getCardById: (cardId: string) => CRMCard | undefined;
   getCardsByStage: (stage: CRMStage) => CRMCard[];
   refreshHealth: () => void;
 }
@@ -175,7 +174,7 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const createCardFromSession = useCallback(async (session: ChatSession): Promise<CRMCard> => {
     const now = new Date().toISOString();
-    const id = createCardId(`crm_${session.id}`);
+    const id = `crm_${session.id}`;
 
     const cnpjDigits = session.cnpj ? String(session.cnpj).replace(/\D/g, '') : '';
     const cnpj = cnpjDigits.length === 14 ? cnpjDigits : (session.cnpj || undefined);
@@ -188,7 +187,7 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       website: extractWebsiteFromSession(session),
       briefDescription: generateBriefDescriptionFromSession(session),
       exactLink: extractExactLinkFromSession(session),
-      linkedSessionIds: [session.id as SessionId],
+      linkedSessionIds: [session.id],
       stage: 'prospeccao',
       createdAt: now,
       updatedAt: now,
@@ -217,7 +216,7 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const cleanCnpj = input.cnpj ? String(input.cnpj).replace(/\D/g, '') : undefined;
 
     const base: CRMCard = {
-      id: createCardId(`crm_manual_${Date.now()}`),
+      id: `crm_manual_${Date.now()}`,
       companyName: input.companyName.trim() || 'Empresa sem nome',
       cnpj: cleanCnpj && cleanCnpj.length === 14 ? cleanCnpj : undefined,
       cnpjs: cleanCnpj && cleanCnpj.length === 14 ? [cleanCnpj] : undefined,
@@ -250,7 +249,7 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     await saveFull(updated);
   }, [saveFull]);
 
-  const deleteCard = useCallback(async (cardId: CardId) => {
+  const deleteCard = useCallback(async (cardId: string) => {
     setCards(prev => prev.filter(c => c.id !== cardId));
     try {
       await del(`crm_card_${cardId}`);
@@ -259,7 +258,7 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   }, []);
 
-  const moveCardToStage = useCallback(async (cardId: CardId, stage: CRMStage) => {
+  const moveCardToStage = useCallback(async (cardId: string, stage: CRMStage) => {
     const card = cards.find(c => c.id === cardId);
     if (!card) return;
     
@@ -276,7 +275,7 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     await saveFull(updated);
   }, [cards, saveFull]);
 
-  const getCardById = useCallback((cardId: CardId) => {
+  const getCardById = useCallback((cardId: string) => {
     return cards.find(c => c.id === cardId);
   }, [cards]);
 
