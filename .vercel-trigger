@@ -1,0 +1,6 @@
+# Vercel Rebuild Trigger
+# Este arquivo força um novo deploy após correções críticas
+# Timestamp: 2026-02-26T21:30:00Z
+
+Deploy ID: build-after-sender-fix
+Razão: Importação correta de Sender enum em geminiService.ts
