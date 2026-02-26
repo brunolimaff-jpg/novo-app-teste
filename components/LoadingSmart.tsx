@@ -1,8 +1,17 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { ChatMode } from '../constants';
-import { generateLoadingCuriosities } from '../services/geminiService';
 
 const FADE_DURATION = 400;
+
+// Curiosidades padrão
+const DEFAULT_CURIOSITIES = [
+  "O Mato Grosso lidera a produção de soja do Brasil — Fonte: IBGE",
+  "A Senior atende mais de 13.000 grupos econômicos — Fonte: Senior",
+  "O Brasil é o maior exportador de soja do mundo — Fonte: CONAB",
+  "O agronegócio representa 25% do PIB brasileiro — Fonte: IBGE",
+  "O Brasil possui mais de 200 milhões de cabeças de gado — Fonte: IBGE",
+  "A tecnologia aumenta a produtividade do campo em até 40% — Fonte: Embrapa"
+];
 
 interface LoadingSmartProps {
   isLoading: boolean;
@@ -27,7 +36,7 @@ const LoadingSmart: React.FC<LoadingSmartProps> = ({
   const [elapsedTime, setElapsedTime] = useState(0);
 
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const curiositiesRef = useRef<string[]>([]);
+  const curiositiesRef = useRef<string[]>(DEFAULT_CURIOSITIES);
   const curiosityIndexRef = useRef<number>(0);
 
   // 1. Contador de Tempo
@@ -43,33 +52,12 @@ const LoadingSmart: React.FC<LoadingSmartProps> = ({
     return () => clearInterval(interval);
   }, [isLoading]);
 
-  // 2. Busca curiosidades quando inicia nova investigação
+  // 2. Inicializa com curiosidades padrão
   useEffect(() => {
     if (isLoading && searchQuery && searchQuery.length > 3) {
       curiosityIndexRef.current = 0;
-      curiositiesRef.current = [];
-
-      generateLoadingCuriosities(searchQuery).then(facts => {
-        if (facts && facts.length > 0) {
-          curiositiesRef.current = facts;
-          setCurrentInsight(facts[0]);
-        } else {
-          curiositiesRef.current = [
-            "O Mato Grosso lidera a produção de soja do Brasil — Fonte: IBGE",
-            "A Senior atende mais de 13.000 grupos econômicos — Fonte: Senior",
-            "O Brasil é o maior exportador de soja do mundo — Fonte: CONAB",
-            "O agronegócio representa 25% do PIB brasileiro — Fonte: IBGE"
-          ];
-          setCurrentInsight(curiositiesRef.current[0]);
-        }
-      }).catch(() => {
-        curiositiesRef.current = [
-          "O Mato Grosso lidera a produção de soja do Brasil — Fonte: IBGE",
-          "A Senior atende mais de 13.000 grupos econômicos — Fonte: Senior",
-          "O Brasil é o maior exportador de soja do mundo — Fonte: CONAB"
-        ];
-        setCurrentInsight(curiositiesRef.current[0]);
-      });
+      curiositiesRef.current = DEFAULT_CURIOSITIES;
+      setCurrentInsight(DEFAULT_CURIOSITIES[0]);
     }
   }, [isLoading, searchQuery]);
 
