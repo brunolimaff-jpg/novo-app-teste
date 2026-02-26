@@ -1,1 +1,176 @@
+/* ===================================================================
+   WCAG 2.1 AA Accessibility Styles
+   =================================================================== */
 
+/* Skip Link */
+.skip-link {
+  position: absolute;
+  top: -40px;
+  left: 0;
+  background: #000;
+  color: #fff;
+  padding: 8px 16px;
+  z-index: 10000;
+  transition: top 0.3s;
+}
+
+.skip-link:focus {
+  top: 0;
+}
+
+/* High Contrast Mode */
+.high-contrast {
+  --scout-background: #000000 !important;
+  --scout-surface: #111111 !important;
+  --scout-text: #ffffff !important;
+  --scout-text-muted: #cccccc !important;
+  --scout-border: #ffffff !important;
+  --scout-primary: #00ff00 !important;
+  --scout-secondary: #00ffff !important;
+  --scout-accent: #ffff00 !important;
+}
+
+.high-contrast * {
+  border-color: var(--scout-border) !important;
+}
+
+.high-contrast button,
+.high-contrast [role="button"] {
+  border: 2px solid var(--scout-border) !important;
+}
+
+/* Large Text Mode */
+.large-text {
+  font-size: 1.25rem !important;
+}
+
+.large-text h1,
+.large-text h2,
+.large-text h3,
+.large-text h4,
+.large-text h5,
+.large-text h6 {
+  font-size: 1.5em !important;
+}
+
+.large-text .text-xs {
+  font-size: 0.875rem !important;
+}
+
+.large-text .text-sm {
+  font-size: 1rem !important;
+}
+
+.large-text .text-base {
+  font-size: 1.25rem !important;
+}
+
+.large-text .text-lg {
+  font-size: 1.5rem !important;
+}
+
+.large-text .text-xl {
+  font-size: 1.75rem !important;
+}
+
+/* Reduced Motion */
+.reduce-motion *,
+.reduce-motion *::before,
+.reduce-motion *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+  scroll-behavior: auto !important;
+}
+
+/* Focus Indicators */
+.focus-default *:focus {
+  outline: 2px solid var(--scout-primary);
+  outline-offset: 2px;
+}
+
+.focus-enhanced *:focus {
+  outline: 3px solid var(--scout-primary);
+  outline-offset: 3px;
+  box-shadow: 0 0 0 6px rgba(16, 185, 129, 0.3);
+}
+
+.focus-hidden *:focus {
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+/* Screen Reader Optimized */
+.screen-reader .sr-only {
+  position: static !important;
+  width: auto !important;
+  height: auto !important;
+  padding: 8px !important;
+  margin: 4px !important;
+  overflow: visible !important;
+  clip: auto !important;
+  white-space: normal !important;
+  border: 1px solid var(--scout-border) !important;
+  background: var(--scout-surface) !important;
+  color: var(--scout-text) !important;
+}
+
+/* Keyboard Only Mode */
+.keyboard-only [role="button"]:not([tabindex="0"]),
+.keyboard-only a:not([tabindex="0"]) {
+  display: none !important;
+}
+
+/* Color Blind Modes */
+.deuteranopia {
+  filter: url('#deuteranopia-filter');
+}
+
+.protanopia {
+  filter: url('#protanopia-filter');
+}
+
+.tritanopia {
+  filter: url('#tritanopia-filter');
+}
+
+/* ARIA Live Region */
+#sr-announcer {
+  position: absolute;
+  left: -10000px;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+}
+
+/* Focus Visible Polyfill */
+:focus:not(:focus-visible) {
+  outline: none;
+}
+
+:focus-visible {
+  outline: 2px solid var(--scout-primary);
+  outline-offset: 2px;
+}
+
+/* Reduced Transparency */
+@media (prefers-reduced-transparency: reduce) {
+  *,
+  *::before,
+  *::after {
+    opacity: 1 !important;
+    backdrop-filter: none !important;
+  }
+}
+
+/* Print Styles */
+@media print {
+  .no-print {
+    display: none !important;
+  }
+  
+  * {
+    background: white !important;
+    color: black !important;
+  }
+}
