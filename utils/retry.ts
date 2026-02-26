@@ -1,65 +1,134 @@
-
-import { AppError } from '../types';
-import { normalizeAppError } from './errorHelpers';
+import type { AppError } from '../types';
 
 interface RetryOptions {
-  maxRetries?: number;        // Default: 3
-  baseDelayMs?: number;       // Default: 1000ms
-  maxDelayMs?: number;        // Default: 10000ms
-  jitter?: boolean;           // Default: true
+  maxRetries?: number;
+  baseDelay?: number;
+  maxDelay?: number;
+  jitter?: boolean;
+  onRetry?: (attempt: number, error: Error) => void;
 }
 
-const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+const sleep = (ms: number): Promise<void> => 
+  new Promise(resolve => setTimeout(resolve, ms));
 
-/**
- * Executa uma função assíncrona com retry automático para erros transientes.
- * Usa Exponential Backoff + Full Jitter.
- */
-export async function withAutoRetry<T>(
-  actionName: string,
-  action: () => Promise<T>,
+export async function withRetry<T>(
+  fn: () => Promise<T>,
   options: RetryOptions = {}
 ): Promise<T> {
   const {
     maxRetries = 3,
-    baseDelayMs = 1000,
-    maxDelayMs = 10000,
-    jitter = true
+    baseDelay = 1000,
+    maxDelay = 10000,
+    jitter = true,
+    onRetry,
   } = options;
 
-  let attempt = 0;
+  let lastError: Error | null = null;
 
-  while (true) {
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
-      return await action();
-    } catch (error: any) {
-      // Normaliza erro para checar se é transiente
-      const appError: AppError = normalizeAppError(error);
+      return await fn();
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
 
-      // Se não for transiente ou esgotou tentativas, falha
-      if (!appError.transient || attempt >= maxRetries) {
-        if (attempt >= maxRetries) {
-          console.warn(`[AutoRetry] ${actionName} failed after ${attempt} retries.`);
-        }
-        throw appError; // Repassa o erro normalizado
+      if (attempt === maxRetries) {
+        throw lastError;
       }
 
-      attempt++;
+      // Exponential backoff: 2^attempt * baseDelay
+      let delay = Math.min(baseDelay * Math.pow(2, attempt), maxDelay);
       
-      // Cálculo do Backoff Exponencial
-      // delay = base * 2^(attempt-1)
-      const exponentialDelay = baseDelayMs * Math.pow(2, attempt - 1);
-      
-      // Cap no delay máximo
-      const cappedDelay = Math.min(exponentialDelay, maxDelayMs);
-      
-      // Full Jitter: random entre 0 e cappedDelay
-      // Isso evita o problema de "thundering herd" onde todos retentam ao mesmo tempo
-      const finalDelay = jitter ? Math.random() * cappedDelay : cappedDelay;
+      // Add jitter to prevent thundering herd
+      if (jitter) {
+        delay += Math.random() * 1000;
+      }
 
-      console.log(`[AutoRetry] ${actionName} error (${appError.code}). Retrying in ${Math.round(finalDelay)}ms (Attempt ${attempt}/${maxRetries})`);
-      
-      await wait(finalDelay);
+      onRetry?.(attempt + 1, lastError);
+      await sleep(delay);
     }
   }
+
+  throw lastError || new Error('Retry failed');
+}
+
+// Circuit Breaker Pattern
+interface CircuitBreakerOptions {
+  failureThreshold?: number;
+  resetTimeout?: number;
+}
+
+interface CircuitBreakerState {
+  status: 'closed' | 'open' | 'half-open';
+  failures: number;
+  lastFailureTime: number | null;
+}
+
+export function createCircuitBreaker(options: CircuitBreakerOptions = {}) {
+  const { failureThreshold = 5, resetTimeout = 30000 } = options;
+  
+  const state: CircuitBreakerState = {
+    status: 'closed',
+    failures: 0,
+    lastFailureTime: null,
+  };
+
+  return async function execute<T>(fn: () => Promise<T>): Promise<T> {
+    if (state.status === 'open') {
+      const timeSinceLastFailure = Date.now() - (state.lastFailureTime || 0);
+      
+      if (timeSinceLastFailure >= resetTimeout) {
+        state.status = 'half-open';
+      } else {
+        throw new Error('Circuit breaker is open');
+      }
+    }
+
+    try {
+      const result = await fn();
+      
+      // Success: reset state
+      if (state.status === 'half-open') {
+        state.status = 'closed';
+        state.failures = 0;
+      }
+      
+      return result;
+    } catch (error) {
+      state.failures++;
+      state.lastFailureTime = Date.now();
+
+      if (state.failures >= failureThreshold) {
+        state.status = 'open';
+      }
+
+      throw error;
+    }
+  };
+}
+
+// Rate Limiter
+interface RateLimiterOptions {
+  maxRequests: number;
+  windowMs: number;
+}
+
+export function createRateLimiter(options: RateLimiterOptions) {
+  const { maxRequests, windowMs } = options;
+  const requests: number[] = [];
+
+  return function checkLimit(): boolean {
+    const now = Date.now();
+    
+    // Remove requests outside the window
+    while (requests.length > 0 && requests[0] <= now - windowMs) {
+      requests.shift();
+    }
+
+    if (requests.length >= maxRequests) {
+      return false;
+    }
+
+    requests.push(now);
+    return true;
+  };
 }

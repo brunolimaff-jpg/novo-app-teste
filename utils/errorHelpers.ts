@@ -1,136 +1,82 @@
+import type { AppError, ErrorCode, ErrorSource } from '../types';
 
-import { AppError, ErrorCode, ErrorSource } from '../types';
-import { ChatMode } from '../constants';
+const ERROR_MESSAGES: Record<ErrorCode, string> = {
+  NETWORK: 'Problema de conexão. Verifique sua internet.',
+  TIMEOUT: 'A operação demorou muito. Tente novamente.',
+  RATE_LIMIT: 'Muitas requisições. Aguarde um momento.',
+  MODEL_OVERLOADED: 'O modelo está sobrecarregado. Tente em alguns segundos.',
+  AUTH: 'Erro de autenticação. Faça login novamente.',
+  BAD_REQUEST: 'Requisição inválida. Verifique os dados.',
+  SERVER: 'Erro no servidor. Tente novamente mais tarde.',
+  PARSER: 'Erro ao processar resposta. Tente novamente.',
+  UNKNOWN: 'Erro inesperado. Tente novamente.',
+  ABORTED: 'Operação cancelada.',
+  BLOCKED_CONTENT: 'Conteúdo bloqueado por segurança.',
+  GUARD: 'Mensagem bloqueada por segurança. Reformule e tente novamente.',
+};
 
-/**
- * Normaliza qualquer erro para o formato AppError.
- */
-export function normalizeAppError(
-  error: any, 
-  source: ErrorSource = 'UNKNOWN', 
-  defaultMessage: string = 'Ocorreu um erro inesperado.'
-): AppError {
-  // Se já for um AppError, retorna ele mesmo (pode precisar ajustar a source se for genérica)
-  if (isAppError(error)) {
+export function normalizeAppError(error: unknown, source: ErrorSource = 'UNKNOWN'): AppError {
+  if (error && typeof error === 'object' && 'code' in error) {
+    const err = error as Partial<AppError>;
     return {
-      ...error,
-      source: error.source === 'UNKNOWN' ? source : error.source
+      code: err.code || 'UNKNOWN',
+      message: err.message || 'Erro desconhecido',
+      friendlyMessage: err.friendlyMessage || ERROR_MESSAGES[err.code || 'UNKNOWN'],
+      httpStatus: err.httpStatus,
+      retryable: err.retryable ?? isRetryable(err.code || 'UNKNOWN'),
+      transient: err.transient ?? isTransient(err.code || 'UNKNOWN'),
+      source: err.source || source,
+      details: err.details,
     };
   }
 
-  const rawMessage = error?.message || String(error);
-  const status = error?.status || error?.code || 0; // Tenta capturar status HTTP ou código gRPC
+  const message = error instanceof Error ? error.message : String(error);
+  const code = detectErrorCode(message);
 
-  let code: ErrorCode = 'UNKNOWN';
-  let friendlyMessage = defaultMessage;
-  let retryable = true;   // Default: botão "Tentar de novo" aparece
-  let transient = false;  // Default: sem auto-retry automático
-
-  // 0. Erros Fatais de Fetch / Abort (NÃO RETENTAR)
-  if (rawMessage.match(/input body is disturbed/i)) {
-    code = 'UNKNOWN';
-    friendlyMessage = 'Erro técnico na comunicação (Corpo da requisição já utilizado).';
-    retryable = false;
-    transient = false; // CRÍTICO: Nunca retentar erro de body disturbed
-  }
-  else if (rawMessage.match(/aborted/i) || error.name === 'AbortError' || error.code === 'ABORTED') {
-    code = 'ABORTED';
-    friendlyMessage = 'Solicitação cancelada pelo usuário.';
-    retryable = false;
-    transient = false; // CRÍTICO: Nunca retentar cancelamento do usuário
-  }
-  // 1. Erros de Rede / Conexão (Fetch API)
-  else if (rawMessage.match(/fetch failed|load failed|network|connection|offline|internet|failed to fetch|err_connection|net::err_/i)) {
-    code = 'NETWORK';
-    friendlyMessage = 'Parece que você está sem internet ou houve uma falha na conexão.';
-    transient = true;
-  }
-  // 2. Timeout
-  else if (rawMessage.match(/timeout|deadline/i)) {
-    code = 'TIMEOUT';
-    friendlyMessage = 'O servidor demorou muito para responder.';
-    transient = true;
-  }
-  // 3. Rate Limit / Quota (429)
-  else if (status === 429 || rawMessage.includes('429') || rawMessage.match(/quota|rate limit|exhausted/i)) {
-    code = 'RATE_LIMIT';
-    friendlyMessage = 'O sistema está com muito tráfego agora. Aguarde um instante.';
-    transient = true; // Auto-retry com backoff é ideal aqui
-  }
-  // 4. Model Overloaded (503)
-  else if (status === 503 || rawMessage.includes('503') || rawMessage.match(/overloaded|capacity/i)) {
-    code = 'MODEL_OVERLOADED';
-    friendlyMessage = 'A IA está sobrecarregada no momento. Tente novamente.';
-    transient = true;
-  }
-  // 5. Server Errors (500, 502, 504)
-  else if (status >= 500) {
-    code = 'SERVER';
-    friendlyMessage = 'Erro interno nos servidores da IA.';
-    transient = true;
-  }
-  // 6a. Modelo incompatível com API usada (ex.: deep-research requer Interactions API)
-  else if (rawMessage.match(/only supports Interactions API/i)) {
-    code = 'UNKNOWN';
-    friendlyMessage = 'Modelo de IA incompatível com o método de chamada. Contate o suporte técnico.';
-    retryable = false;
-    transient = false;
-  }
-  // 6. Safety / Blocked Content (400 ou msg específica)
-  else if (rawMessage.match(/safety|blocked|harmful|policy/i)) {
-    code = 'BLOCKED_CONTENT';
-    friendlyMessage = 'A resposta foi bloqueada pelos filtros de segurança.';
-    retryable = false;
-    transient = false;
-  }
-  // 7. Auth Errors
-  else if (status === 401 || status === 403 || rawMessage.match(/api key|unauthorized|forbidden/i)) {
-    code = 'AUTH';
-    friendlyMessage = 'Chave de API inválida ou expirada.';
-    retryable = false;
-    transient = false;
-  }
-  
   return {
     code,
-    message: rawMessage,
-    friendlyMessage, // Mensagem base, pode ser sobrescrita pela UI com base no Modo
-    httpStatus: typeof status === 'number' ? status : undefined,
-    retryable,
-    transient,
+    message,
+    friendlyMessage: ERROR_MESSAGES[code],
+    retryable: isRetryable(code),
+    transient: isTransient(code),
     source,
-    details: error
   };
 }
 
-function isAppError(error: any): error is AppError {
-  return error && typeof error === 'object' && 'code' in error && 'friendlyMessage' in error;
+function detectErrorCode(message: string): ErrorCode {
+  const lower = message.toLowerCase();
+  
+  if (lower.includes('timeout') || lower.includes('etimedout')) return 'TIMEOUT';
+  if (lower.includes('network') || lower.includes('enetunreach') || lower.includes('econnrefused')) return 'NETWORK';
+  if (lower.includes('rate limit') || lower.includes('too many requests')) return 'RATE_LIMIT';
+  if (lower.includes('overloaded') || lower.includes('busy')) return 'MODEL_OVERLOADED';
+  if (lower.includes('auth') || lower.includes('unauthorized') || lower.includes('forbidden')) return 'AUTH';
+  if (lower.includes('bad request') || lower.includes('invalid')) return 'BAD_REQUEST';
+  if (lower.includes('server error') || lower.includes('500') || lower.includes('502') || lower.includes('503')) return 'SERVER';
+  if (lower.includes('abort') || lower.includes('cancelled')) return 'ABORTED';
+  if (lower.includes('blocked') || lower.includes('guard')) return 'GUARD';
+  
+  return 'UNKNOWN';
 }
 
-/**
- * Retorna uma mensagem amigável baseada no Modo (Diretoria vs Operação)
- */
-export function getFriendlyErrorMessage(error: AppError, mode: ChatMode): string {
-  if (mode === 'diretoria') {
-    switch (error.code) {
-      case 'NETWORK': return "Verifique sua conexão com a internet e tente novamente.";
-      case 'RATE_LIMIT': return "Muitas requisições simultâneas. Aguarde alguns instantes.";
-      case 'MODEL_OVERLOADED': return "O serviço de IA está temporariamente instável.";
-      case 'BLOCKED_CONTENT': return "Não consegui processar essa solicitação por políticas de segurança.";
-      case 'SERVER': return "Ocorreu uma falha temporária nos servidores do Google.";
-      case 'ABORTED': return "Geração interrompida.";
-      default: return error.friendlyMessage || "Não foi possível completar a solicitação.";
-    }
-  } else {
-    // Modo Operação
-    switch (error.code) {
-      case 'NETWORK': return "Ih, caiu a internet aí ou aqui? O sinal sumiu no meio do pasto.";
-      case 'RATE_LIMIT': return "Calma lá, boiadeiro! O sistema tá congestionado que nem estrada em dia de chuva.";
-      case 'MODEL_OVERLOADED': return "A IA deu uma engasgada no carburador. Muita gente usando.";
-      case 'BLOCKED_CONTENT': return "Opa, esse assunto aí barrou na cerca elétrica. Num passa.";
-      case 'SERVER': return "Deu ruim no servidor lá na gringa. Bora tentar de novo.";
-      case 'ABORTED': return "Freou o trator bruscamente, hein?";
-      default: return "Eita, deu um enrosco aqui que eu nem sei explicar. Tenta de novo aí.";
-    }
-  }
+function isRetryable(code: ErrorCode): boolean {
+  return ['NETWORK', 'TIMEOUT', 'RATE_LIMIT', 'MODEL_OVERLOADED', 'SERVER'].includes(code);
+}
+
+function isTransient(code: ErrorCode): boolean {
+  return ['RATE_LIMIT', 'MODEL_OVERLOADED'].includes(code);
+}
+
+export function createErrorBoundary<T extends Record<string, unknown>>(
+  componentName: string,
+  onError?: (error: AppError, info: T) => void
+) {
+  return {
+    handleError(error: unknown, info: T): AppError {
+      const appError = normalizeAppError(error, 'UI');
+      console.error(`[${componentName}] Error:`, appError, info);
+      onError?.(appError, info);
+      return appError;
+    },
+  };
 }
